@@ -15,9 +15,13 @@ object ImageUtil {
 
     /** Loads a photo, fixes its rotation, shrinks it to at most 1280 px and returns a JPEG data URI. */
     fun toDataUri(resolver: ContentResolver, uri: Uri): String {
+        // Reading only the size: decodeStream() always returns null here, the size lands in `bounds`.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            ?: throw IOException("Cannot open photo")
+        val stream = resolver.openInputStream(uri) ?: throw IOException("Cannot open photo")
+        stream.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw IOException("The photo is empty or unreadable. Tap Clear and take it again.")
+        }
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
 
