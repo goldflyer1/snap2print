@@ -1,13 +1,13 @@
 # Snap2Print
 
-Point your Android phone at an object, say how big you want it, and get a print-ready STL. Then print it with the Bambu Handy app on the same phone, or open it in any other printer app.
+Point your Android phone at an object, say how big you want it, and get a print-ready STL and 3MF. Then print it with the Bambu Handy app on the same phone, or open it in any other printer app.
 
 ```
  1. Take 1–4 photos
  2. Say "8 cm tall"            ┌─ Claude (default): rebuilds the object from simple solid shapes
  3. Create STL  ───────────────┤
                                └─ Meshy (optional): AI "scan look-alike", for organic shapes
-    App scales it to exactly 80 mm, stands it on the bed, saves it to Downloads/Snap2Print
+    App scales it to exactly 80 mm, stands it on the bed, saves .stl + .3mf to Downloads/Snap2Print
  4. Print with Bambu Handy  /  Open in another printer app  /  (optional) PC bridge
 ```
 
@@ -47,7 +47,8 @@ Tap **Settings**:
      1. has already saved the STL in **Downloads/Snap2Print**
      2. opens **makerworld.com**, where you log in with your Bambu account, tap Upload, pick the STL and set it to **Private**
      3. opens **Bambu Handy**, where you go to your uploads and tap Print
-   - **Open in another printer app…** sends the STL to any installed app that accepts it: phone slicer apps, other brands' printer apps, Drive, mail, WhatsApp.
+   - **Files:** every model is saved as both **.stl** and **.3mf**. The 3MF is a standard model file in millimetres that opens in Bambu Studio, OrcaSlicer, PrusaSlicer, Cura and MakerWorld. It holds the model only: a printer still needs it sliced (a `.gcode.3mf`), and slicing can't run on the phone.
+   - **Open in another printer app…** asks STL or 3MF, then sends the file to any installed app that accepts it: phone slicer apps, other brands' printer apps, Drive, mail, WhatsApp.
    - **Send to PC bridge** (only shown if set up) uses the optional PC helper in `bridge/`, which opens the STL in Bambu Studio or prints fully automatically over your LAN. See `bridge/snap2print_bridge.py`.
 
 ## What Claude can and can't model

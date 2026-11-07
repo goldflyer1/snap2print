@@ -24,6 +24,7 @@ import com.snap2print.app.core.MeshFit
 import com.snap2print.app.core.MeshIO
 import com.snap2print.app.core.SizeParser
 import com.snap2print.app.core.SizeRequest
+import com.snap2print.app.core.ThreeMF
 import com.snap2print.app.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingPhoto: Uri? = null
     private var size: SizeRequest? = null
     private var stl: File? = null
+    private var threeMf: File? = null
     private var savedToDownloads: String? = null
     private var busy = false
 
@@ -135,6 +137,7 @@ class MainActivity : AppCompatActivity() {
 
         busy = true
         stl = null
+        threeMf = null
         savedToDownloads = null
         refresh()
         b.progress.visibility = View.VISIBLE
@@ -143,9 +146,10 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                val (file, summary) = withContext(Dispatchers.IO) {
+                val (files, summary) = withContext(Dispatchers.IO) {
                     val images = photos.map { ImageUtil.toDataUri(contentResolver, it) }
                     var notes = ""
+                    var objectName = "Snap2Print model"
                     var mesh: Mesh
                     if (useMeshy) {
                         val result = MeshyClient(key).generate(images) { status, pct ->
@@ -158,6 +162,7 @@ class MainActivity : AppCompatActivity() {
                             runOnUiThread { b.status.text = status }
                         }
                         mesh = result.mesh
+                        objectName = result.objectName
                         notes = "${result.objectName.replaceFirstChar { it.uppercase() }}, ${result.partCount} shapes. ${result.notes}".trim()
                     }
                     runOnUiThread { b.status.text = "Scaling to ${req!!.describe()}…" }
@@ -167,13 +172,22 @@ class MainActivity : AppCompatActivity() {
                     val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                     val out = File(dir, "snap2print_$stamp.stl")
                     out.outputStream().buffered().use { MeshIO.writeBinaryStl(mesh, it) }
+                    val out3mf = File(dir, "snap2print_$stamp.3mf")
+                    out3mf.outputStream().buffered().use { ThreeMF.write(mesh, objectName, it) }
                     val s = mesh.size()
                     val dims = String.format(Locale.US, "Ready: %.1f × %.1f × %.1f mm (W × D × H)", s[0], s[1], s[2])
-                    out to (if (notes.isNotEmpty()) "$dims\n$notes" else dims)
+                    (out to out3mf) to (if (notes.isNotEmpty()) "$dims\n$notes" else dims)
                 }
-                stl = file
+                stl = files.first
+                threeMf = files.second
                 b.status.text = summary
-                savedToDownloads = withContext(Dispatchers.IO) { runCatching { saveToDownloads(file) }.getOrNull() }
+                savedToDownloads = withContext(Dispatchers.IO) {
+                    runCatching {
+                        saveToDownloads(files.first, "model/stl")
+                        saveToDownloads(files.second, "model/3mf")
+                        "Downloads/Snap2Print/${files.first.nameWithoutExtension} (.stl and .3mf)"
+                    }.getOrNull()
+                }
             } catch (e: Exception) {
                 b.status.text = "⚠ ${e.message ?: e.javaClass.simpleName}"
             } finally {
@@ -184,17 +198,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Copies the STL to Downloads/Snap2Print so the browser (MakerWorld upload) and other apps can pick it. */
-    private fun saveToDownloads(file: File): String {
+    /** Copies a model file to Downloads/Snap2Print so the browser (MakerWorld upload) and other apps can pick it. */
+    private fun saveToDownloads(file: File, mime: String) {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, file.name)
-            put(MediaStore.Downloads.MIME_TYPE, "model/stl")
+            put(MediaStore.Downloads.MIME_TYPE, mime)
             put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Snap2Print")
         }
         val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
             ?: throw IllegalStateException("Could not create file in Downloads")
         contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
-        return "Downloads/Snap2Print/${file.name}"
     }
 
     // ---------- Step 4: print ----------
@@ -211,7 +224,7 @@ class MainActivity : AppCompatActivity() {
                 "Bambu Handy can't open STL files directly. It prints models from your MakerWorld account, " +
                     "which Bambu's cloud slices for your printer.\n\n" +
                     "1. Tap “Open MakerWorld”, log in with your Bambu account, and choose Upload.\n" +
-                    "2. Pick the STL from $where. Set visibility to Private.\n" +
+                    "2. Pick the .3mf (or .stl) file from $where. Set visibility to Private.\n" +
                     "3. Open Bambu Handy → Me → My uploads → your model → Print.\n\n" +
                     "The first upload takes a few minutes; after that it's quick."
             )
@@ -240,17 +253,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** For other printers: any installed app that accepts STL files (slicer apps, Creality Cloud, file managers, mail…). */
+    /** For other printers: any installed app that accepts the model (slicer apps, printer apps, file managers, mail…). */
     private fun openInOtherApp() {
-        val file = stl ?: return
+        val options = listOfNotNull(
+            threeMf?.let { "3MF: best for slicers (Bambu Studio, Orca, Prusa, Cura)" to (it to "model/3mf") },
+            stl?.let { "STL: works with every printer app" to (it to "model/stl") },
+        )
+        if (options.isEmpty()) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Which file?")
+            .setItems(options.map { it.first }.toTypedArray()) { _, which ->
+                val (file, mime) = options[which].second
+                shareFile(file, mime)
+            }
+            .show()
+    }
+
+    private fun shareFile(file: File, mime: String) {
         val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
         val send = Intent(Intent.ACTION_SEND).apply {
-            type = "model/stl"
+            type = mime
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         val view = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "model/stl")
+            setDataAndType(uri, mime)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         val chooser = Intent.createChooser(send, getString(R.string.share_stl))
@@ -322,7 +349,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (photos.isEmpty()) b.photoPreview.setImageDrawable(null) else b.photoPreview.setImageURI(photos.last())
         b.sizeParsed.text = size?.let { "Size: ${it.describe()}" } ?: "Size: not set"
-        b.btnGenerate.text = if (engine == "meshy") "Create STL (Meshy)" else "Create STL (Claude)"
+        b.btnGenerate.text = if (engine == "meshy") "Create 3D model (Meshy)" else "Create 3D model (Claude)"
         b.btnPhoto.isEnabled = !busy
         b.btnClearPhotos.isEnabled = !busy && photos.isNotEmpty()
         b.btnSpeak.isEnabled = !busy

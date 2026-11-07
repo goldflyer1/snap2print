@@ -9,11 +9,11 @@
     <string name="speak">Speak</string>
     <string name="size_input_hint">Or type the size</string>
     <string name="step3">3 · Make the 3D model</string>
-    <string name="generate">Create STL</string>
+    <string name="generate">Create 3D model</string>
     <string name="step4">4 · Print</string>
     <string name="send_to_printer">Send to PC bridge</string>
     <string name="print_handy">Print with Bambu Handy</string>
-    <string name="share_stl">Open in another printer app…</string>
+    <string name="share_stl">Open in another printer app (STL / 3MF)…</string>
     <string name="settings">Settings</string>
     <string name="settings_engine">3D engine</string>
     <string name="engine_claude">Claude: rebuilds it from simple shapes (best for parts)</string>
