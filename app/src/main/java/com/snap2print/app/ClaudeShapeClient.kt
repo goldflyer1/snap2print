@@ -45,26 +45,31 @@ class ClaudeShapeClient(private val apiKey: String, private val model: String) {
             put("max_tokens", 16000)
             put("system", SYSTEM_PROMPT)
             put("tools", JSONArray().put(TOOL))
-            put("tool_choice", JSONObject().put("type", "tool").put("name", "build_model"))
-            put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
+            // "auto": newer models don't accept a forced tool choice; the system prompt asks for the tool instead.
+            put("tool_choice", JSONObject().put("type", "auto"))
         }
+        val messages = JSONArray().put(JSONObject().put("role", "user").put("content", content))
 
         onProgress("Claude is studying the photo${if (imageDataUris.size > 1) "s" else ""}…")
-        val response = post(body.toString())
-
-        val blocks = response.optJSONArray("content") ?: throw IOException("Claude returned no content")
         var input: JSONObject? = null
-        for (i in 0 until blocks.length()) {
-            val b = blocks.getJSONObject(i)
-            if (b.optString("type") == "tool_use" && b.optString("name") == "build_model") input = b.getJSONObject("input")
-        }
-        if (input == null) {
+        for (attempt in 1..2) {
+            body.put("messages", messages)
+            val response = post(body.toString())
+            val blocks = response.optJSONArray("content") ?: throw IOException("Claude returned no content")
+            input = findModel(blocks)
+            if (input != null) break
             if (response.optString("stop_reason") == "max_tokens") throw IOException("Claude's answer was cut off; try a simpler photo")
-            throw IOException("Claude did not return a model description")
+            if (attempt == 2) throw IOException("Claude did not return a model description. Try again or use a clearer photo.")
+            // Claude answered in words only: keep its reply and ask once more for the tool call.
+            onProgress("Asking Claude for the 3D shapes…")
+            messages.put(JSONObject().put("role", "assistant").put("content", blocks))
+            messages.put(JSONObject().put("role", "user").put("content",
+                "Now call the build_model tool with the complete model. Don't answer in text."))
         }
+        val spec = input ?: throw IOException("Claude did not return a model description")
 
         onProgress("Building the 3D shapes…")
-        val parts = input.optJSONArray("parts") ?: throw IOException("Claude returned no shapes")
+        val parts = spec.optJSONArray("parts") ?: throw IOException("Claude returned no shapes")
         val built = ArrayList<FloatArray>()
         val problems = ArrayList<String>()
         for (i in 0 until parts.length()) {
@@ -78,10 +83,29 @@ class ClaudeShapeClient(private val apiKey: String, private val model: String) {
         if (built.isEmpty()) throw IOException("None of Claude's shapes could be built. ${problems.joinToString("; ")}")
 
         val notes = buildString {
-            append(input.optString("notes"))
+            append(spec.optString("notes"))
             if (problems.isNotEmpty()) append("\nSkipped ${problems.size} invalid shape(s).")
         }.trim()
-        return Result(Shapes.combine(built), input.optString("object_name", "object"), notes, built.size)
+        return Result(Shapes.combine(built), spec.optString("object_name", "object"), notes, built.size)
+    }
+
+    /** The build_model tool call, or else a JSON object with "parts" written in Claude's text. */
+    private fun findModel(blocks: JSONArray): JSONObject? {
+        for (i in 0 until blocks.length()) {
+            val b = blocks.getJSONObject(i)
+            if (b.optString("type") == "tool_use" && b.optString("name") == "build_model") return b.getJSONObject("input")
+        }
+        for (i in 0 until blocks.length()) {
+            val b = blocks.getJSONObject(i)
+            if (b.optString("type") != "text") continue
+            val text = b.optString("text")
+            val start = text.indexOf('{')
+            val end = text.lastIndexOf('}')
+            if (start < 0 || end <= start) continue
+            val json = runCatching { JSONObject(text.substring(start, end + 1)) }.getOrNull()
+            if (json?.optJSONArray("parts") != null) return json
+        }
+        return null
     }
 
     // ---------- Shapes from JSON ----------
