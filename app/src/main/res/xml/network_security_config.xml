@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The PC bridge runs on your home/workshop network over plain HTTP (e.g. http://192.168.1.20:8765).
+     Android blocks plain HTTP by default, so it is allowed here. Meshy is always reached over HTTPS. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

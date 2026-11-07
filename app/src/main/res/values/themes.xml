@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.Snap2Print" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">#1F7A5C</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#2E5E8C</item>
+    </style>
+
+    <style name="StepTitle" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textStyle">bold</item>
+    </style>
+</resources>
